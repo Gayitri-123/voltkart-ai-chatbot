@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoltKart Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo" id="logo">VK</div>
+      <div><div class="brand-name" id="brandName">VoltKart</div><div class="brand-sub">Customer Assistant</div></div>
+    </div>
+
+    <button class="new-chat" id="newChat">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      New conversation
+    </button>
+
+    <div class="section-title">AI model</div>
+    <div id="modelList" class="model-list" role="radiogroup" aria-label="AI model"></div>
+
+    <div class="section-title">I can help with</div>
+    <ul class="topics">
+      <li><span class="dot shop"></span>Product info &amp; prices</li>
+      <li><span class="dot order"></span>Order tracking</li>
+      <li><span class="dot refund"></span>Returns &amp; refunds</li>
+      <li><span class="dot policy"></span>Warranty, delivery &amp; EMI</li>
+    </ul>
+
+    <div class="sidebar-foot">Answers come from store data. For payment disputes, contact customer care.</div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn menu" id="menuBtn" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="topbar-title">
+        <span class="status-dot"></span> Support chat
+      </div>
+      <div class="model-pill" id="modelPill">—</div>
+    </header>
+
+    <section class="log" id="log" aria-live="polite">
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">👋</div>
+        <h1>Hi! How can we help today?</h1>
+        <p>Ask about any product, track your order, or check a refund.</p>
+        <div class="quick">
+          <button data-q="Suggest a phone under Rs 25,000">
+            <span class="q-icon shop">📱</span><span><b>Find a product</b><small>Phones under Rs 25,000</small></span>
+          </button>
+          <button data-q="Compare the TVs and ACs you have in stock">
+            <span class="q-icon policy">📺</span><span><b>Compare products</b><small>TVs and ACs in stock</small></span>
+          </button>
+          <button data-q="Track order ORD10002, phone 9876543210">
+            <span class="q-icon order">🚚</span><span><b>Track an order</b><small>ORD10002</small></span>
+          </button>
+          <button data-q="Where is my refund for order ORD10003? Phone 9123456780">
+            <span class="q-icon refund">💸</span><span><b>Refund status</b><small>ORD10003</small></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <form class="composer" id="form">
+      <div class="composer-box">
+        <textarea id="input" rows="1" placeholder="Ask about products, orders or refunds…" aria-label="Message"></textarea>
+        <button type="submit" id="send" class="send" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 12l16-8-6 16-3-6-7-2z" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <div class="hint">Enter to send · Shift+Enter for a new line</div>
+    </form>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

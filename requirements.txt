@@ -1,0 +1,4 @@
+anthropic[bedrock]>=1.6.0
+openai>=3.0
+fastapi
+uvicorn
