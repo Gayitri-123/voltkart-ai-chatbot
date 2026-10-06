@@ -14,7 +14,7 @@ import anthropic
 import boto3
 import openai
 from anthropic import AnthropicBedrockMantle
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from openai import OpenAI
 
 from tools import TOOLS, run_tool
@@ -35,6 +35,9 @@ Quote prices in rupees (Rs). Keep replies short and friendly. You may use **bold
 For anything you cannot resolve (payment disputes, damaged-on-arrival claims, complaints), direct the customer to {STORE_NAME} customer care."""
 
 FALLBACK_REPLY = "Sorry, that took too long to look up. Please try rephrasing your question."
+
+
+NO_AWS_CREDENTIALS = "AWS credentials are not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
 
 
 class ProviderError(Exception):
@@ -159,6 +162,10 @@ def _run_bedrock(cfg, transcript, steps, usage):
         raise ProviderError(502, f"Bedrock error: {e.message}")
     except anthropic.APIConnectionError:
         raise ProviderError(503, "Could not reach Amazon Bedrock.")
+    except RuntimeError as e:
+        if "credentials" not in str(e).lower():
+            raise
+        raise ProviderError(503, NO_AWS_CREDENTIALS)
 
 # ---------- Amazon Bedrock Converse (Nova, Llama, Mistral, DeepSeek, ...) ----------
 
@@ -228,6 +235,8 @@ def _run_converse(cfg, transcript, steps, usage):
         if code == "ThrottlingException":
             raise ProviderError(429, "Bedrock is rate limiting requests, please try again shortly.")
         raise ProviderError(502, f"Bedrock error: {e.response['Error']['Message']}")
+    except NoCredentialsError:
+        raise ProviderError(503, NO_AWS_CREDENTIALS)
     except BotoCoreError:
         raise ProviderError(503, "Could not reach Amazon Bedrock.")
 
