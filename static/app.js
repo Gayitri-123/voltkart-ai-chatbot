@@ -1,7 +1,12 @@
 const $ = (id) => document.getElementById(id);
 const log = $("log"), input = $("input"), send = $("send"), modelList = $("modelList"), modelPill = $("modelPill");
 
-const PROVIDERS = { bedrock: { name: "Amazon Bedrock", color: "var(--bedrock)" }, openai: { name: "OpenAI", color: "var(--openai)" } };
+// name: sidebar group heading; short: shown in the header pill
+const PROVIDERS = {
+  bedrock: { name: "Claude · Amazon Bedrock", short: "Amazon Bedrock", color: "var(--bedrock)" },
+  bedrock_converse: { name: "More models · Amazon Bedrock", short: "Amazon Bedrock", color: "var(--bedrock)" },
+  openai: { name: "OpenAI", short: "OpenAI", color: "var(--openai)" },
+};
 let models = [];
 let currentModel = null;
 let sessionId = null;
@@ -58,7 +63,7 @@ function renderModels() {
     }
   }
   const m = models.find((x) => x.id === currentModel);
-  modelPill.textContent = m ? `${m.label} · ${PROVIDERS[m.provider].name}` : "—";
+  modelPill.textContent = m ? `${m.label} · ${PROVIDERS[m.provider].short}` : "—";
 }
 
 function selectModel(id) {
