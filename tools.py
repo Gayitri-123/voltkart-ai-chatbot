@@ -6,7 +6,9 @@ TOOLS = [
     {
         "name": "search_products",
         "description": "Search the store catalog by keyword, category, brand, and/or maximum price. "
-                       "Use this whenever the customer asks about products, prices, availability or recommendations.",
+                       "Use this whenever the customer asks about products, prices, availability or recommendations. "
+                       "Call it with no arguments to list the whole catalog (e.g. for 'the cheapest' or 'what do you "
+                       "sell'), or with only max_price for a budget.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -84,13 +86,14 @@ def get_product_details(sku):
 
 
 def get_order_status(order_id, phone):
-    order = ORDERS.get(order_id.strip().upper())
+    order_id = order_id.strip().upper()
+    order = ORDERS.get(order_id)
     if not order or order["phone"] != "".join(ch for ch in phone if ch.isdigit())[-10:]:
         return {"error": "No order found for that order ID and phone number."}
     names = {p["sku"]: p["name"] for p in PRODUCTS}
     result = {k: v for k, v in order.items() if k != "phone"}
     result["items"] = [{**i, "name": names.get(i["sku"], i["sku"])} for i in order["items"]]
-    return {"order_id": order_id.upper(), **result}
+    return {"order_id": order_id, **result}
 
 
 def get_policy(topic):

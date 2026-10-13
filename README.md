@@ -1,4 +1,4 @@
-# VoltKart Customer Chatbot (Amazon Bedrock + OpenAI)
+# VoltKart Customer Chatbot (Gemini, open-weights and Claude)
 
 A customer support chatbot. Customers can:
 - Search products and ask about specs, prices, offers and stock
@@ -6,22 +6,51 @@ A customer support chatbot. Customers can:
 - Check refund/return status
 - Ask about return, refund, cancellation, delivery, warranty and payment policies
 
-The customer picks the AI model in the sidebar and can switch models mid-conversation:
-- Claude on Amazon Bedrock: Claude Opus 5, Sonnet 5, Haiku 4.5, Opus 4.8, Opus 4.7
-- More models on Amazon Bedrock (Converse API): Amazon Nova Pro, Nova 2 Lite, Llama 4 Maverick, Mistral Large 3,
-  DeepSeek V3.2, Qwen3 Next 80B, GPT-OSS 120B, GPT-6 Astra, Grok 4.6
-- OpenAI: GPT-5, GPT-5 mini, GPT-4.1, GPT-4o, GPT-4o mini (enabled when `OPENAI_API_KEY` is set)
+Three sources of models are offered (only models that support tool calling, needed to look up products and orders):
+
+| Source | Models | Credentials |
+|---|---|---|
+| [Gemini API](https://ai.google.dev/gemini-api/docs/pricing) (free tier) | Gemini 3.8 Flash (default), 3.7 Flash, 3.6 Flash, 3.5 Flash, 3.5 Flash-Lite, 3.1 Flash-Lite, 3 Flash Preview, 2.5 Flash | `GEMINI_API_KEY` from https://aistudio.google.com/apikey |
+| [Ollama](https://ollama.com) (free, runs on your machine) | Open-weights models you have pulled that support tools, e.g. Qwen3, Llama 3.1, Mistral, gpt-oss | None: start Ollama and `ollama pull <model>` |
+| [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/) (**paid**, billed to your AWS account) | Claude Opus 5, Claude Sonnet 5, Claude Haiku 4.5 | AWS credentials (env vars or `~/.aws`) with Bedrock model access |
+
+The customer picks the model in the sidebar and can switch models mid-conversation. Models whose credentials aren't
+set show as "Not configured", so you can enable only the source you want. Ollama models are found at runtime: every
+pulled model that supports tool calling is listed (refresh the page after pulling one); none are listed if Ollama
+isn't running.
+
+The Gemini free tier has limits (requests per minute/day). When a model hits its limit, the customer is asked to pick
+another model. Free-tier prompts may be used by providers to improve
+their products (Google does), so don't send real customer data through them.
 
 ## How it works
 - `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`).
-- `providers.py`: model list, system prompt, and the tool-calling loop for each provider: Claude on Bedrock
-  (Anthropic SDK), other Bedrock models (boto3 Converse API) and OpenAI.
+- `providers.py`: model list, system prompt, and the tool-calling loop: Gemini and Ollama through their
+  OpenAI-compatible APIs,
+  Claude through the Anthropic SDK on Bedrock.
   Tool calls are saved in the chat history, so a newly selected model sees what the previous model looked up.
-- `tools.py`: the tools Claude can call (`search_products`, `get_product_details`, `get_order_status`, `get_policy`).
+- `tools.py`: the tools the model can call (`search_products`, `get_product_details`, `get_order_status`, `get_policy`).
 - `data.py`: **sample** catalog, orders and policies. Replace with real APIs/DB.
 - `static/`: chat web UI (`index.html`, `styles.css`, `app.js`). Responsive, light/dark mode.
 
 ## Run
+Put a free Gemini key in a `.env` file in the project folder:
+```bash
+GEMINI_API_KEY=...
+```
+For the Claude models, configure AWS credentials (`aws configure`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in
+`.env`) for an account with Bedrock access to the Claude models. Claude usage is billed to that AWS account.
+
+For open-weights models, install [Ollama](https://ollama.com/download) and pull a model that supports tools:
+```bash
+ollama pull qwen3        # or llama3.1, mistral, qwen2.5, gpt-oss:20b ...
+```
+Local models run on your CPU/GPU, so replies can take from a few seconds to minutes depending on the hardware and
+model size (the first reply also waits for the model to load). Ollama only works when the chatbot runs on the same
+machine (or `OLLAMA_URL` points to a reachable Ollama server); the Render free plan can't run it. No customer data
+leaves the machine.
+
+Then start the chatbot:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
@@ -29,13 +58,15 @@ python3 -m venv .venv
 ```
 Open http://localhost:8000
 
-Uses your AWS credentials (`~/.aws/credentials`, env vars, or IAM role). Optional env vars:
-- `AWS_REGION` (default `us-east-1`)
+Optional env vars (can also be put in a `.env` file in the project folder, which is gitignored):
+- The credentials above: each enables that source's models
+- `OLLAMA_URL` (default `http://localhost:11434`): Ollama server for the open-weights models
+- `OLLAMA_TIMEOUT` (default `300`): seconds to wait for a local model's reply
+- `AWS_REGION` (default `us-east-1`): Bedrock region for the Claude models
 - `STORE_NAME` (default `VoltKart`): store name shown in the UI and used by the assistant
-- `OPENAI_API_KEY`: enables the OpenAI models (can also be put in a `.env` file in the project folder, which is gitignored)
 
-To add or remove models, edit `MODELS` in `providers.py`. Any Bedrock model that supports tool use in the
-Converse API can be added with `"provider": "bedrock_converse"`; it must be enabled for your AWS account and region.
+To add or remove models, edit `_MODEL_LIST` in `providers.py`: `(id, label, provider, model name in that provider's
+API)`. Only add models that support tool calling. Ollama models need no entry: pull or remove them with `ollama`.
 
 ## Comparing models (evals)
 `evals/run_eval.py` runs the test conversations in `evals/cases.json` against each model, using the same
@@ -43,7 +74,8 @@ tool-calling loop as the app, and prints a comparison table (pass rate overall a
 latency, tool calls, errors).
 ```bash
 python evals/run_eval.py                                            # all available models, all cases
-python evals/run_eval.py --models claude-sonnet-5 gpt-5 nova-pro --judge claude-opus-5
+python evals/run_eval.py --models gemini-3.8-flash claude-haiku-4-5 --judge claude-sonnet-5
+python evals/run_eval.py --models ollama/qwen3:latest --workers 1  # a local model (ids as shown by /api/models)
 python evals/run_eval.py --cases order_ policy_ --workers 8          # only cases whose id starts with these
 ```
 A case passes when all of its automatic checks pass:
@@ -55,9 +87,8 @@ A case passes when all of its automatic checks pass:
   a tool result or the customer's message, or be a simple difference (savings) or EMI split of those figures
 
 `--judge <model>` also has that model score each conversation 1-5 for correctness, helpfulness and tone, using the
-chatbot's system prompt and the case's `notes`. Use a strong model (`claude-opus-5`); smaller models judge
-inconsistently. Full transcripts, checks and scores are saved to `evals/results/<timestamp>/` (gitignored).
-Every model × case is a real API call, so running all models costs money; start with `--models`.
+chatbot's system prompt and the case's `notes`. Use a strong model such as GPT-OSS 120B; small models
+judge inconsistently. With the free tier, keep `--workers` low (e.g. 2) to stay under the rate limits. Full transcripts, checks and scores are saved to `evals/results/<timestamp>/` (gitignored).
 
 ## Test order data
 | Order | Phone | Status |

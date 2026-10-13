@@ -5,7 +5,7 @@ Runs every case in cases.json against each selected model through the same tool-
 comparison table. Full transcripts and scores are saved under evals/results/<timestamp>/.
 
   python evals/run_eval.py                                     # all available models, all cases
-  python evals/run_eval.py --models claude-sonnet-5 gpt-5 --judge claude-opus-5
+  python evals/run_eval.py --models gemini-3.8-flash claude-haiku-4-5 --judge claude-sonnet-5
   python evals/run_eval.py --cases order_ policy_ --workers 8   # only cases whose id starts with these
 """
 
@@ -24,11 +24,11 @@ sys.path.insert(0, ROOT)
 
 from dotenv import load_dotenv
 
-# Load .env (e.g. OPENAI_API_KEY) before providers reads the environment.
+# Load .env (e.g. GEMINI_API_KEY) before providers reads the environment.
 load_dotenv(os.path.join(ROOT, ".env"))
 
 import providers  # noqa: E402
-from providers import MODELS, STORE_NAME, SYSTEM_PROMPT, ProviderError, list_models, run_turn  # noqa: E402
+from providers import STORE_NAME, SYSTEM_PROMPT, ProviderError, get_model, list_models, run_turn  # noqa: E402
 
 EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
 CATEGORIES = ["orders", "products", "policies", "escalation"]
@@ -141,28 +141,10 @@ def _format_conversation(transcript):
     return "\n".join(lines)
 
 
-def complete(model_id, prompt):
-    """One plain (no tools) completion from any configured model."""
-    cfg = MODELS[model_id]
-    if cfg["provider"] == "bedrock":
-        extra = {"output_config": {"effort": cfg["effort"]}} if cfg["effort"] else {}
-        response = providers._bedrock().messages.create(
-            model=cfg["api_model"], max_tokens=4000, messages=[{"role": "user", "content": prompt}], **extra)
-        return "".join(b.text for b in response.content if b.type == "text")
-    if cfg["provider"] == "bedrock_converse":
-        response = providers._converse().converse(
-            modelId=cfg["api_model"], messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 2000})
-        return "".join(b["text"] for b in response["output"]["message"]["content"] if "text" in b)
-    response = providers._openai().chat.completions.create(
-        model=cfg["api_model"], messages=[{"role": "user", "content": prompt}], max_completion_tokens=4000)
-    return response.choices[0].message.content or ""
-
-
 def judge(judge_model, case, transcript):
     prompt = JUDGE_PROMPT.format(store=STORE_NAME, system_prompt=SYSTEM_PROMPT, notes=case.get("notes", "(none)"),
                                  conversation=_format_conversation(transcript))
-    text = complete(judge_model, prompt)
+    text = providers.complete(judge_model, prompt)
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError(f"judge did not return JSON: {text[:200]!r}")
@@ -225,7 +207,7 @@ def summarize(records, model_ids):
         checks = [c for r in ok for c in r["checks"]]
         row = {
             "model": mid,
-            "label": MODELS[mid]["label"],
+            "label": get_model(mid)["label"],
             "cases": len(recs),
             "passed": sum(r["passed"] for r in recs),
             "pass_rate": sum(r["passed"] for r in recs) / len(recs) if recs else None,
@@ -284,25 +266,18 @@ def print_failures(records):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare chatbot models on the eval cases.")
-    parser.add_argument("--models", nargs="+", help="model ids from providers.MODELS (default: all available)")
+    parser.add_argument("--models", nargs="+", help="model ids, as listed by /api/models (default: all available)")
     parser.add_argument("--cases", nargs="+", help="only run cases whose id starts with one of these prefixes")
-    parser.add_argument("--judge", help="model id to use as LLM judge, e.g. claude-opus-5 (default: no judge)")
+    parser.add_argument("--judge", help="model id to use as LLM judge, e.g. claude-sonnet-5 (default: no judge)")
     parser.add_argument("--workers", type=int, default=4, help="parallel requests (default 4)")
     parser.add_argument("--cases-file", default=os.path.join(EVAL_DIR, "cases.json"))
     parser.add_argument("--out", default=os.path.join(EVAL_DIR, "results"), help="folder for results")
     args = parser.parse_args()
 
-    available = {m["id"] for m in list_models() if m["available"]}
-    model_ids = args.models or [mid for mid in MODELS if mid in available]
+    model_ids = args.models or [m["id"] for m in list_models() if m["available"]]
     for mid in [*model_ids, *([args.judge] if args.judge else [])]:
-        if mid not in MODELS:
-            parser.error(f"unknown model {mid}. Choose from: {', '.join(MODELS)}")
-    skipped = [mid for mid in model_ids if mid not in available]
-    if skipped:
-        print(f"Skipping {', '.join(skipped)}: OPENAI_API_KEY is not set.")
-        model_ids = [mid for mid in model_ids if mid in available]
-    if args.judge and args.judge not in available:
-        parser.error(f"judge model {args.judge} is not available: OPENAI_API_KEY is not set.")
+        if get_model(mid) is None:
+            parser.error(f"unknown model {mid}. Choose from: {', '.join(m['id'] for m in list_models())}")
 
     with open(args.cases_file) as f:
         cases = json.load(f)

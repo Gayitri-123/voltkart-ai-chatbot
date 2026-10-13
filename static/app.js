@@ -3,9 +3,9 @@ const log = $("log"), input = $("input"), send = $("send"), modelList = $("model
 
 // name: sidebar group heading; short: shown in the header pill
 const PROVIDERS = {
-  bedrock: { name: "Claude · Amazon Bedrock", short: "Amazon Bedrock", color: "var(--bedrock)" },
-  bedrock_converse: { name: "More models · Amazon Bedrock", short: "Amazon Bedrock", color: "var(--bedrock)" },
-  openai: { name: "OpenAI", short: "OpenAI", color: "var(--openai)" },
+  gemini: { name: "Free · Google Gemini", short: "Gemini", color: "var(--gemini)" },
+  ollama: { name: "Free · Open weights (Ollama, local)", short: "Ollama", color: "var(--ollama)" },
+  bedrock: { name: "Paid · Claude (Amazon Bedrock)", short: "Claude", color: "var(--claude)" },
 };
 let models = [];
 let currentModel = null;
@@ -22,7 +22,9 @@ async function loadModels() {
   let saved = null;
   try { saved = localStorage.getItem("chat-model"); } catch {}
   const usable = (id) => models.some((m) => m.id === id && m.available);
-  currentModel = usable(saved) ? saved : data.default;
+  currentModel = usable(saved) ? saved
+    : usable(data.default) ? data.default
+    : (models.find((m) => m.available) || { id: data.default }).id;
   renderModels();
 }
 
@@ -54,7 +56,7 @@ function renderModels() {
       btn.setAttribute("role", "radio");
       btn.setAttribute("aria-checked", String(m.id === currentModel));
       btn.disabled = !m.available;
-      btn.title = m.available ? "" : "Set OPENAI_API_KEY on the server to enable";
+      btn.title = m.available ? "" : "Credentials not set on the server";
       btn.innerHTML = `<span class="radio"></span><span><div class="m-name"></div><div class="m-note"></div></span>`;
       btn.querySelector(".m-name").textContent = m.label;
       btn.querySelector(".m-note").textContent = m.available ? m.note : "Not configured";
