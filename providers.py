@@ -18,7 +18,7 @@ import anthropic
 import boto3
 import httpx
 import openai
-from anthropic import AnthropicBedrockMantle
+from anthropic import AnthropicBedrock, AnthropicBedrockMantle
 from openai import OpenAI
 
 from tools import TOOLS, run_tool
@@ -85,7 +85,13 @@ _MODEL_LIST = [
     ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "gemini", "gemini-3.1-flash-lite"),
     ("gemini-3-flash-preview", "Gemini 3 Flash Preview", "gemini", "gemini-3-flash-preview"),
     ("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", "gemini-2.5-flash"),
-    ("claude-opus-5", "Claude Opus 5", "bedrock", "anthropic.claude-opus-5"),
+    ("claude-fable-5-1", "Claude Fable 5.1", "bedrock", "anthropic.claude-fable-5-1"),
+    # The 5.5 models are served only through a cross-region inference profile (us.) on the Bedrock runtime API; the
+    # Mantle endpoint answers 404 for them in our account.
+    ("claude-opus-5-5", "Claude Opus 5.5", "bedrock", "us.anthropic.claude-opus-5-5"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "bedrock", "us.anthropic.claude-sonnet-5-5"),
+    ("claude-haiku-5-5", "Claude Haiku 5.5", "bedrock", "us.anthropic.claude-haiku-5-5"),
+    # Previous generation, served by Mantle only; kept until Chatbot-Compare's paid baselines move to the 5.5 models.
     ("claude-sonnet-5", "Claude Sonnet 5", "bedrock", "anthropic.claude-sonnet-5"),
     ("claude-haiku-4-5", "Claude Haiku 4.5", "bedrock", "anthropic.claude-haiku-4-5"),
 ]
@@ -256,10 +262,13 @@ def _run_openai(cfg, transcript, steps, usage):
 
 # ---------- Claude (Amazon Bedrock) ----------
 
-def _bedrock():
-    if "bedrock" not in _clients:
-        _clients["bedrock"] = AnthropicBedrockMantle(aws_region=AWS_REGION)
-    return _clients["bedrock"]
+def _bedrock(api_model):
+    """Inference-profile ids (us., global.) go through the Bedrock runtime API, other models through Mantle."""
+    key = "bedrock-runtime" if api_model.startswith(("us.", "global.")) else "bedrock"
+    if key not in _clients:
+        cls = AnthropicBedrock if key == "bedrock-runtime" else AnthropicBedrockMantle
+        _clients[key] = cls(aws_region=AWS_REGION)
+    return _clients[key]
 
 
 def _to_claude_messages(transcript):
@@ -278,7 +287,7 @@ def _to_claude_messages(transcript):
 def _run_bedrock(cfg, transcript, steps, usage):
     if not _available("bedrock"):
         raise _not_configured("bedrock")
-    client = _bedrock()
+    client = _bedrock(cfg["api_model"])
     messages = _to_claude_messages(transcript)
     try:
         for _ in range(MAX_TOOL_ROUNDS):
@@ -337,8 +346,8 @@ def complete(model_id: str, prompt: str) -> str:
     """One plain completion (no tools), e.g. for the eval judge."""
     cfg = get_model(model_id)
     if cfg["provider"] == "bedrock":
-        response = _bedrock().messages.create(model=cfg["api_model"], max_tokens=4000,
-                                              messages=[{"role": "user", "content": prompt}])
+        response = _bedrock(cfg["api_model"]).messages.create(model=cfg["api_model"], max_tokens=4000,
+                                                              messages=[{"role": "user", "content": prompt}])
         return "".join(b.text for b in response.content if b.type == "text")
     response = _client(cfg["provider"]).chat.completions.create(
         model=cfg["api_model"], messages=[{"role": "user", "content": prompt}], max_completion_tokens=4000)

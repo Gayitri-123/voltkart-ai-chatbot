@@ -28,7 +28,7 @@ def test_list_models_availability(monkeypatch):
     monkeypatch.setitem(providers.PROVIDERS["bedrock"], "configured", lambda: True)
     avail = {m["id"]: m["available"] for m in providers.list_models()}
     assert avail["gemini-3.8-flash"] is False
-    assert avail["claude-sonnet-5"] is True
+    assert avail["claude-sonnet-5-5"] is True
 
 
 def test_plain_reply_and_usage(fake_client):
@@ -77,11 +77,11 @@ def test_claude_tool_loop(fake_bedrock):
         claude_message("It's out for delivery."),
     ])
     usage = {}
-    reply, steps = run_turn("claude-sonnet-5", [{"role": "user", "text": "where is ORD10002"}], usage)
+    reply, steps = run_turn("claude-sonnet-5-5", [{"role": "user", "text": "where is ORD10002"}], usage)
     assert reply == "It's out for delivery."
     assert steps[0][0]["id"] == "toolu_1" and steps[0][0]["output"]["status"] == "Out for delivery"
     req = client.requests[1]
-    assert req["model"] == "anthropic.claude-sonnet-5"
+    assert req["model"] == "us.anthropic.claude-sonnet-5-5"
     result = req["messages"][-1]["content"][0]
     assert result["type"] == "tool_result" and result["tool_use_id"] == "toolu_1"
     assert usage["input_tokens"] == 20 and usage["output_tokens"] == 10
@@ -89,7 +89,7 @@ def test_claude_tool_loop(fake_bedrock):
 
 def test_claude_refusal(fake_bedrock):
     fake_bedrock([claude_message("", stop_reason="refusal")])
-    assert "customer care" in run_turn("claude-haiku-4-5", [{"role": "user", "text": "x"}])[0]
+    assert "customer care" in run_turn("claude-haiku-5-5", [{"role": "user", "text": "x"}])[0]
 
 
 def test_history_replay_across_providers():
@@ -122,7 +122,7 @@ def test_unconfigured_providers(monkeypatch):
         run_turn("gemini-3.8-flash", [{"role": "user", "text": "x"}])
     assert e.value.status == 503 and "GEMINI_API_KEY" in str(e.value)
     with pytest.raises(ProviderError) as e:
-        run_turn("claude-sonnet-5", [{"role": "user", "text": "x"}])
+        run_turn("claude-sonnet-5-5", [{"role": "user", "text": "x"}])
     assert e.value.status == 503 and "AWS_ACCESS_KEY_ID" in str(e.value)
 
 
@@ -188,5 +188,5 @@ def test_ollama_errors_map_to_provider_errors(fake_client, ollama_models, exc, s
 def test_claude_errors_map_to_provider_errors(fake_bedrock, exc, status, text):
     fake_bedrock([exc()])
     with pytest.raises(ProviderError) as e:
-        run_turn("claude-sonnet-5", [{"role": "user", "text": "x"}])
+        run_turn("claude-sonnet-5-5", [{"role": "user", "text": "x"}])
     assert e.value.status == status and text in str(e.value)

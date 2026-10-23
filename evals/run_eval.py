@@ -5,7 +5,7 @@ Runs every case in cases.json against each selected model through the same tool-
 comparison table. Full transcripts and scores are saved under evals/results/<timestamp>/.
 
   python evals/run_eval.py                                     # all available models, all cases
-  python evals/run_eval.py --models gemini-3.8-flash claude-haiku-4-5 --judge claude-sonnet-5
+  python evals/run_eval.py --models gemini-3.8-flash claude-haiku-5-5 --judge claude-sonnet-5-5
   python evals/run_eval.py --cases order_ policy_ --workers 8   # only cases whose id starts with these
 """
 
@@ -268,7 +268,7 @@ def main():
     parser = argparse.ArgumentParser(description="Compare chatbot models on the eval cases.")
     parser.add_argument("--models", nargs="+", help="model ids, as listed by /api/models (default: all available)")
     parser.add_argument("--cases", nargs="+", help="only run cases whose id starts with one of these prefixes")
-    parser.add_argument("--judge", help="model id to use as LLM judge, e.g. claude-sonnet-5 (default: no judge)")
+    parser.add_argument("--judge", help="model id to use as LLM judge, e.g. claude-sonnet-5-5 (default: no judge)")
     parser.add_argument("--workers", type=int, default=4, help="parallel requests (default 4)")
     parser.add_argument("--cases-file", default=os.path.join(EVAL_DIR, "cases.json"))
     parser.add_argument("--out", default=os.path.join(EVAL_DIR, "results"), help="folder for results")

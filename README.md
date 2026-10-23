@@ -12,7 +12,7 @@ Three sources of models are offered (only models that support tool calling, need
 |---|---|---|
 | [Gemini API](https://ai.google.dev/gemini-api/docs/pricing) (free tier) | Gemini 3.8 Flash (default), 3.7 Flash, 3.6 Flash, 3.5 Flash, 3.5 Flash-Lite, 3.1 Flash-Lite, 3 Flash Preview, 2.5 Flash | `GEMINI_API_KEY` from https://aistudio.google.com/apikey |
 | [Ollama](https://ollama.com) (free, runs on your machine) | Open-weights models you have pulled that support tools, e.g. Qwen3, Llama 3.1, Mistral, gpt-oss | None: start Ollama and `ollama pull <model>` |
-| [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/) (**paid**, billed to your AWS account) | Claude Opus 5, Claude Sonnet 5, Claude Haiku 4.5 | AWS credentials (env vars or `~/.aws`) with Bedrock model access |
+| [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/) (**paid**, billed to your AWS account) | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 5.5 | AWS credentials (env vars or `~/.aws`) with Bedrock model access |
 
 The customer picks the model in the sidebar and can switch models mid-conversation. Models whose credentials aren't
 set show as "Not configured", so you can enable only the source you want. Ollama models are found at runtime: every
@@ -74,7 +74,7 @@ tool-calling loop as the app, and prints a comparison table (pass rate overall a
 latency, tool calls, errors).
 ```bash
 python evals/run_eval.py                                            # all available models, all cases
-python evals/run_eval.py --models gemini-3.8-flash claude-haiku-4-5 --judge claude-sonnet-5
+python evals/run_eval.py --models gemini-3.8-flash claude-haiku-5-5 --judge claude-sonnet-5-5
 python evals/run_eval.py --models ollama/qwen3:latest --workers 1  # a local model (ids as shown by /api/models)
 python evals/run_eval.py --cases order_ policy_ --workers 8          # only cases whose id starts with these
 ```

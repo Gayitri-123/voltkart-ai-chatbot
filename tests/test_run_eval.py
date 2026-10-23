@@ -79,6 +79,6 @@ def test_judge_uses_selected_model(fake_client):
 
 def test_judge_on_claude(fake_bedrock):
     client = fake_bedrock([claude_message('{"correctness": 4, "helpfulness": 4, "tone": 4}')])
-    scores = run_eval.judge("claude-sonnet-5", {"notes": "n"}, _transcript("q", "a"))
+    scores = run_eval.judge("claude-sonnet-5-5", {"notes": "n"}, _transcript("q", "a"))
     assert scores["overall"] == 4.0
-    assert client.requests[0]["model"] == "anthropic.claude-sonnet-5"
+    assert client.requests[0]["model"] == "us.anthropic.claude-sonnet-5-5"
