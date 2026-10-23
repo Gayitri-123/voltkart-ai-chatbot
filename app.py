@@ -24,6 +24,22 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 sessions: dict[str, list] = {}
 
 
+# Which kind of lookup each tool is; a reply's "route" names the kind it started with (gray-box testing).
+TOOL_ROUTES = {"search_products": "product", "get_product_details": "product",
+               "get_order_status": "order", "get_policy": "policy"}
+
+
+def route_of(transcript):
+    """The route of the latest turn that called a tool, from its first call (how the model read the request; later
+    calls support it, e.g. the cancellation policy after the order). A follow-up that answers from earlier lookups
+    stays on that route; "chat" when no turn has looked anything up."""
+    for turn in reversed(transcript):
+        calls = [call for round_ in turn.get("steps", []) for call in round_]
+        if calls:
+            return TOOL_ROUTES.get(calls[0]["name"], "chat")
+    return "chat"
+
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
@@ -62,6 +78,7 @@ def chat(req: ChatRequest):
         "model_label": model["label"],
         "latency_ms": int((time.monotonic() - started) * 1000),
         "usage": usage,  # tokens over every model call behind this reply (tool rounds included)
+        "route": route_of(transcript),  # product / order / policy / chat
         **({"trace": trace} if trace else {}),
     }
 

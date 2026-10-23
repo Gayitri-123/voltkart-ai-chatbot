@@ -48,6 +48,22 @@ def test_chat_debug_trace(client, monkeypatch):
     assert data["trace"] == {"tools": [step]}
 
 
+def test_chat_route(client, monkeypatch):
+    def step(name):
+        return {"id": "1", "name": name, "input": {}, "output": {}}
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    first = client.post("/api/chat", json={"message": "hi"}).json()
+    assert first["route"] == "chat"
+    monkeypatch.setattr(app_module, "run_turn", fake_turn(steps=[[step("get_order_status")], [step("get_policy")]]))
+    data = client.post("/api/chat", json={"message": "x", "session_id": first["session_id"]}).json()
+    assert data["route"] == "order"  # the first lookup; the policy lookup only supports it
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    data = client.post("/api/chat", json={"message": "and?", "session_id": first["session_id"]}).json()
+    assert data["route"] == "order"  # a follow-up without a lookup stays on the earlier route
+    monkeypatch.setattr(app_module, "run_turn", fake_turn(steps=[[step("get_policy")]]))
+    assert client.post("/api/chat", json={"message": "x"}).json()["route"] == "policy"
+
+
 def test_chat_unknown_model(client):
     assert client.post("/api/chat", json={"message": "x", "model": "nope"}).status_code == 400
 

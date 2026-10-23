@@ -24,7 +24,9 @@ another model. Free-tier prompts may be used by providers to improve
 their products (Google does), so don't send real customer data through them.
 
 ## How it works
-- `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`).
+- `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`). Each `/api/chat` reply has a `route`: the kind
+  of lookup the reply started with (`product`, `order`, `policy`, or `chat` when nothing was looked up yet), used for
+  gray-box testing; `"debug": true` also returns the tool calls behind the reply (white-box).
 - `providers.py`: model list, system prompt, and the tool-calling loop: Gemini and Ollama through their
   OpenAI-compatible APIs,
   Claude through the Anthropic SDK on Bedrock.
