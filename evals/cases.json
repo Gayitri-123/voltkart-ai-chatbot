@@ -80,7 +80,7 @@
     "category": "products",
     "turns": ["What's the compressor warranty on the LG AC?"],
     "must_call_any": ["search_products", "get_product_details"],
-    "must_match": ["10 years?|ten years?"],
+    "must_match": ["10[- ]years?|ten[- ]years?"],
     "notes": "LG 1.5 Ton AC: 1 year product warranty, 10 years compressor."
   },
   {
