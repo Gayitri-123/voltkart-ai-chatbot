@@ -12,7 +12,7 @@ Three sources of models are offered (only models that support tool calling, need
 |---|---|---|
 | [Gemini API](https://ai.google.dev/gemini-api/docs/pricing) (free tier) | Gemini 3.8 Flash (default), 3.7 Flash, 3.6 Flash, 3.5 Flash, 3.5 Flash-Lite, 3.1 Flash-Lite, 3 Flash Preview, 2.5 Flash | `GEMINI_API_KEY` from https://aistudio.google.com/apikey |
 | [Ollama](https://ollama.com) (free, runs on your machine) | Open-weights models you have pulled that support tools, e.g. Qwen3, Llama 3.1, Mistral, gpt-oss | None: start Ollama and `ollama pull <model>` |
-| [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/) (**paid**, billed to your AWS account) | Claude Opus 5, Claude Sonnet 5, Claude Haiku 4.5 | AWS credentials (env vars or `~/.aws`) with Bedrock model access |
+| [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/) (**paid**, billed to your AWS account) | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5, Claude Haiku 5.5 | AWS credentials (env vars or `~/.aws`) with Bedrock model access |
 
 The customer picks the model in the sidebar and can switch models mid-conversation. Models whose credentials aren't
 set show as "Not configured", so you can enable only the source you want. Ollama models are found at runtime: every
@@ -24,7 +24,15 @@ another model. Free-tier prompts may be used by providers to improve
 their products (Google does), so don't send real customer data through them.
 
 ## How it works
-- `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`).
+- `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`). Each `/api/chat` reply has a `route`: the kind
+  of lookup the reply started with (`product`, `order`, `policy`, or `chat` when nothing was looked up yet), used for
+  gray-box testing. For white-box testing, `"debug": true` with an `X-Debug-Token` header equal to the
+  `DEBUG_TOKEN` env var also returns the tool calls behind the reply, with phone numbers and emails masked. Without
+  `DEBUG_TOKEN` set (the default, and what production should use) no caller gets traces.
+- Conversations belong to the browser that started them: the server gives each browser a random owner id in an
+  HttpOnly cookie, and answers 404 when a session id is used or reset without its owner's cookie (so a leaked or
+  guessed session id is useless). A message sent while the previous reply in the same conversation is still being
+  generated gets 409; other conversations are not held up.
 - `providers.py`: model list, system prompt, and the tool-calling loop: Gemini and Ollama through their
   OpenAI-compatible APIs,
   Claude through the Anthropic SDK on Bedrock.
@@ -64,6 +72,7 @@ Optional env vars (can also be put in a `.env` file in the project folder, which
 - `OLLAMA_TIMEOUT` (default `300`): seconds to wait for a local model's reply
 - `AWS_REGION` (default `us-east-1`): Bedrock region for the Claude models
 - `STORE_NAME` (default `VoltKart`): store name shown in the UI and used by the assistant
+- `DEBUG_TOKEN` (default unset, so debug traces are off): operator secret for `"debug": true` tool traces
 
 To add or remove models, edit `_MODEL_LIST` in `providers.py`: `(id, label, provider, model name in that provider's
 API)`. Only add models that support tool calling. Ollama models need no entry: pull or remove them with `ollama`.
@@ -74,7 +83,7 @@ tool-calling loop as the app, and prints a comparison table (pass rate overall a
 latency, tool calls, errors).
 ```bash
 python evals/run_eval.py                                            # all available models, all cases
-python evals/run_eval.py --models gemini-3.8-flash claude-haiku-4-5 --judge claude-sonnet-5
+python evals/run_eval.py --models gemini-3.8-flash claude-haiku-5-5 --judge claude-sonnet-5-5
 python evals/run_eval.py --models ollama/qwen3:latest --workers 1  # a local model (ids as shown by /api/models)
 python evals/run_eval.py --cases order_ policy_ --workers 8          # only cases whose id starts with these
 ```
@@ -100,4 +109,6 @@ judge inconsistently. With the free tier, keep `--workers` low (e.g. 2) to stay 
 ## Going to production
 - Connect `tools.py` to the real product catalog, order management system and refund service.
 - Store chat sessions in Redis/DynamoDB instead of memory.
-- Add proper customer login (e.g. OTP) instead of only checking the phone number.
+- Add proper customer login (e.g. OTP) instead of only checking the phone number. Then bind conversations to the logged-in
+  customer instead of the anonymous owner cookie.
+- Leave `DEBUG_TOKEN` unset, or set it to a long random secret known only to operators.

@@ -18,7 +18,7 @@ import anthropic
 import boto3
 import httpx
 import openai
-from anthropic import AnthropicBedrockMantle
+from anthropic import AnthropicBedrock, AnthropicBedrockMantle
 from openai import OpenAI
 
 from tools import TOOLS, run_tool
@@ -43,6 +43,7 @@ How to answer:
 - Treat every customer the same. Give the same facts, offers (EMI, bank discounts), warranty details and depth of answer whatever their name, gender, religion, caste, nationality, age, disability, job or income, and however they write (Hinglish, informal, typos). Never comment on whether they can afford or need a product, and don't go along with stereotypes.
 - Stay on topic: politely decline homework, legal, medical, investment and other requests unrelated to {STORE_NAME} shopping and support, and offer shopping help instead.
 - Your data has no customer-care phone numbers, emails, chat channels or hours. For anything you cannot resolve (payment disputes, damaged-on-arrival claims, complaints, a request for a human), say {STORE_NAME} customer care will need to help, without inventing how to reach them or any process, timeline or compensation. For damaged or defective products, also give the returns policy from get_policy.
+- If asked to write a complaint or message to {STORE_NAME} (e.g. about a delayed delivery), write a short, polite draft straight away, using placeholders such as [Order ID], [Order date] and [Your name] for details the customer hasn't given. Don't ask for details or look up the order first; you may offer an order lookup afterwards as an optional next step. Say the customer can send it to {STORE_NAME} customer care, and never claim it has been sent, submitted or registered.
 
 Quote prices in rupees (Rs). Keep replies short and friendly. You may use **bold** for product names and key figures, and "- " bullet lists when listing products or details. Do not use headings or tables."""
 
@@ -85,7 +86,13 @@ _MODEL_LIST = [
     ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "gemini", "gemini-3.1-flash-lite"),
     ("gemini-3-flash-preview", "Gemini 3 Flash Preview", "gemini", "gemini-3-flash-preview"),
     ("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", "gemini-2.5-flash"),
-    ("claude-opus-5", "Claude Opus 5", "bedrock", "anthropic.claude-opus-5"),
+    ("claude-fable-5-1", "Claude Fable 5.1", "bedrock", "anthropic.claude-fable-5-1"),
+    # The 5.5 models are served only through a cross-region inference profile (us.) on the Bedrock runtime API; the
+    # Mantle endpoint answers 404 for them in our account.
+    ("claude-opus-5-5", "Claude Opus 5.5", "bedrock", "us.anthropic.claude-opus-5-5"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "bedrock", "us.anthropic.claude-sonnet-5-5"),
+    ("claude-haiku-5-5", "Claude Haiku 5.5", "bedrock", "us.anthropic.claude-haiku-5-5"),
+    # Previous generation, served by Mantle only; kept until Chatbot-Compare's paid baselines move to the 5.5 models.
     ("claude-sonnet-5", "Claude Sonnet 5", "bedrock", "anthropic.claude-sonnet-5"),
     ("claude-haiku-4-5", "Claude Haiku 4.5", "bedrock", "anthropic.claude-haiku-4-5"),
 ]
@@ -256,10 +263,13 @@ def _run_openai(cfg, transcript, steps, usage):
 
 # ---------- Claude (Amazon Bedrock) ----------
 
-def _bedrock():
-    if "bedrock" not in _clients:
-        _clients["bedrock"] = AnthropicBedrockMantle(aws_region=AWS_REGION)
-    return _clients["bedrock"]
+def _bedrock(api_model):
+    """Inference-profile ids (us., global.) go through the Bedrock runtime API, other models through Mantle."""
+    key = "bedrock-runtime" if api_model.startswith(("us.", "global.")) else "bedrock"
+    if key not in _clients:
+        cls = AnthropicBedrock if key == "bedrock-runtime" else AnthropicBedrockMantle
+        _clients[key] = cls(aws_region=AWS_REGION)
+    return _clients[key]
 
 
 def _to_claude_messages(transcript):
@@ -278,7 +288,7 @@ def _to_claude_messages(transcript):
 def _run_bedrock(cfg, transcript, steps, usage):
     if not _available("bedrock"):
         raise _not_configured("bedrock")
-    client = _bedrock()
+    client = _bedrock(cfg["api_model"])
     messages = _to_claude_messages(transcript)
     try:
         for _ in range(MAX_TOOL_ROUNDS):
@@ -337,8 +347,8 @@ def complete(model_id: str, prompt: str) -> str:
     """One plain completion (no tools), e.g. for the eval judge."""
     cfg = get_model(model_id)
     if cfg["provider"] == "bedrock":
-        response = _bedrock().messages.create(model=cfg["api_model"], max_tokens=4000,
-                                              messages=[{"role": "user", "content": prompt}])
+        response = _bedrock(cfg["api_model"]).messages.create(model=cfg["api_model"], max_tokens=4000,
+                                                              messages=[{"role": "user", "content": prompt}])
         return "".join(b.text for b in response.content if b.type == "text")
     response = _client(cfg["provider"]).chat.completions.create(
         model=cfg["api_model"], messages=[{"role": "user", "content": prompt}], max_completion_tokens=4000)

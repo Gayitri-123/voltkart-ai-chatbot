@@ -150,6 +150,7 @@ async function ask(text) {
       body: JSON.stringify({ message: text, session_id: sessionId, model: currentModel }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 404) sessionId = null;  // expired or not ours: the next message starts a new conversation
     if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     sessionId = data.session_id;
     fillBot(row, data);

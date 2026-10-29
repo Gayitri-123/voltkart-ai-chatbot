@@ -117,7 +117,7 @@ def fake_bedrock(monkeypatch):
 
     def install(responses):
         client = FakeBedrock(responses)
-        monkeypatch.setattr(providers, "_bedrock", lambda: client)
+        monkeypatch.setattr(providers, "_bedrock", lambda api_model: client)
         return client
 
     return install

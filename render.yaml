@@ -4,7 +4,8 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    # Trust Render's proxy headers so the app sees HTTPS and marks the owner cookie Secure.
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /api/models
     envVars:
       - key: PYTHON_VERSION
@@ -19,3 +20,6 @@ services:
         sync: false
       - key: AWS_REGION
         value: us-east-1
+      # Operator secret for "debug": true tool traces (set in the dashboard; leave empty to keep traces off).
+      - key: DEBUG_TOKEN
+        sync: false
