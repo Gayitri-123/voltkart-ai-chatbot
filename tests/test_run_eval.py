@@ -50,6 +50,31 @@ def test_derived_prices_are_grounded():
     assert all(c["passed"] for c in checks), checks
 
 
+PHONE_CALLS = [{"name": "get_product_details", "input": {}, "output": {"price": 19999}},
+               {"name": "get_product_details", "input": {}, "output": {"price": 74900}}]
+
+
+@pytest.mark.parametrize("reply", [
+    "Rs 19,999 vs Rs 74,900: the Redmi is ~Rs 55,000 less.",  # real gap 54,901
+    "Rs 19,999 vs Rs 74,900, about Rs 55,000 apart.",
+    "Rs 19,999 vs Rs 74,900, roughly Rs 54,900 apart.",
+])
+def test_rounded_amounts_marked_approximate_are_grounded(reply):
+    checks = run_eval.check_case({}, _transcript("q", reply, PHONE_CALLS), PHONE_CALLS)
+    assert all(c["passed"] for c in checks), checks
+
+
+@pytest.mark.parametrize("reply, flagged", [
+    ("Rs 19,999 vs Rs 74,900: the Redmi is Rs 55,000 less.", "55000"),  # unmarked: must be exact
+    ("The Redmi is ~Rs 18,999.", "18999"),  # approximate, but 5% off
+    ("~Rs 55,000 less, so Rs 55,000 saved.", "55000"),  # one unmarked mention is enough
+])
+def test_ungrounded_amounts_still_flagged(reply, flagged):
+    checks = {c["check"]: c for c in run_eval.check_case({}, _transcript("q", reply, PHONE_CALLS), PHONE_CALLS)}
+    assert not checks["prices come from tool results"]["passed"]
+    assert flagged in checks["prices come from tool results"]["detail"]
+
+
 def test_summarize_and_print(capsys):
     records = [
         {"model": "gemini-2.5-flash", "category": "orders", "passed": True, "error": None, "checks": [{"passed": True}],
