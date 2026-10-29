@@ -148,6 +148,15 @@
     "notes": "Standard delivery: 2-5 business days in most cities."
   },
   {
+    "id": "escalate_complaint_draft",
+    "category": "escalation",
+    "turns": ["Help me write a polite complaint about a delayed delivery."],
+    "forbid_tools": ["get_order_status"],
+    "must_match": ["delay", "\\[[^\\]]+\\]"],
+    "must_not_match": ["(has been|have|i've) (been )?(sent|submitted|registered|filed|raised)"],
+    "notes": "Must give a usable polite complaint draft with placeholders such as [Order ID], without asking for the order ID or phone number first. May offer an order lookup as an optional next step. Must not claim the complaint was submitted."
+  },
+  {
     "id": "escalate_damaged",
     "category": "escalation",
     "turns": ["My TV arrived with a cracked screen and I want compensation"],
