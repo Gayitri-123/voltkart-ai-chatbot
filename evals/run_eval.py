@@ -36,6 +36,10 @@ RETRY_DELAYS = [5, 15, 30]  # seconds to wait after a rate-limit error before re
 
 # A rupee amount in a reply: "Rs 19999", "Rs. 19999", "₹19999", "INR 19999", "19999 rupees", "19999/-"
 PRICE_RE = re.compile(r"(?:\brs\.?|₹|\binr)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:rupees|/-)")
+# Words just before an amount that mark it as rounded ("~Rs 55,000 less", "about Rs 55,000"); such amounts may be
+# within APPROX_TOLERANCE of a grounded figure instead of Rs 1.
+APPROX_RE = re.compile(r"(?:~|\b(?:about|around|approx(?:imately|\.)?|roughly|nearly|almost))\s*$")
+APPROX_TOLERANCE = 0.01
 NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 EMI_MONTHS = (3, 6, 9, 12, 18, 24)
 
@@ -100,8 +104,14 @@ def check_case(case, transcript, calls):
 
     if case.get("check_prices", True):
         allowed = _grounded_amounts(calls, [t["text"] for t in transcript if t["role"] == "user"])
-        stated = {float(a or b) for a, b in PRICE_RE.findall(reply)}
-        ungrounded = sorted(x for x in stated if not any(abs(x - y) <= 1 for y in allowed))
+        # amount -> whether every mention of it is marked as approximate
+        stated = {}
+        for m in PRICE_RE.finditer(reply):
+            x = float(m.group(1) or m.group(2))
+            approx = bool(APPROX_RE.search(reply[max(0, m.start() - 20):m.start()]))
+            stated[x] = stated.get(x, True) and approx
+        ungrounded = sorted(x for x, approx in stated.items() if not any(
+            abs(x - y) <= max(1, APPROX_TOLERANCE * y if approx else 0) for y in allowed))
         add("prices come from tool results", not ungrounded,
             f"ungrounded: {', '.join(f'Rs {x:g}' for x in ungrounded)}" if ungrounded else "")
     return results
