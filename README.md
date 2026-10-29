@@ -26,7 +26,13 @@ their products (Google does), so don't send real customer data through them.
 ## How it works
 - `app.py`: FastAPI server (`/api/models`, `/api/chat`, `/api/reset`). Each `/api/chat` reply has a `route`: the kind
   of lookup the reply started with (`product`, `order`, `policy`, or `chat` when nothing was looked up yet), used for
-  gray-box testing; `"debug": true` also returns the tool calls behind the reply (white-box).
+  gray-box testing. For white-box testing, `"debug": true` with an `X-Debug-Token` header equal to the
+  `DEBUG_TOKEN` env var also returns the tool calls behind the reply, with phone numbers and emails masked. Without
+  `DEBUG_TOKEN` set (the default, and what production should use) no caller gets traces.
+- Conversations belong to the browser that started them: the server gives each browser a random owner id in an
+  HttpOnly cookie, and answers 404 when a session id is used or reset without its owner's cookie (so a leaked or
+  guessed session id is useless). A message sent while the previous reply in the same conversation is still being
+  generated gets 409; other conversations are not held up.
 - `providers.py`: model list, system prompt, and the tool-calling loop: Gemini and Ollama through their
   OpenAI-compatible APIs,
   Claude through the Anthropic SDK on Bedrock.
@@ -66,6 +72,7 @@ Optional env vars (can also be put in a `.env` file in the project folder, which
 - `OLLAMA_TIMEOUT` (default `300`): seconds to wait for a local model's reply
 - `AWS_REGION` (default `us-east-1`): Bedrock region for the Claude models
 - `STORE_NAME` (default `VoltKart`): store name shown in the UI and used by the assistant
+- `DEBUG_TOKEN` (default unset, so debug traces are off): operator secret for `"debug": true` tool traces
 
 To add or remove models, edit `_MODEL_LIST` in `providers.py`: `(id, label, provider, model name in that provider's
 API)`. Only add models that support tool calling. Ollama models need no entry: pull or remove them with `ollama`.
@@ -102,4 +109,6 @@ judge inconsistently. With the free tier, keep `--workers` low (e.g. 2) to stay 
 ## Going to production
 - Connect `tools.py` to the real product catalog, order management system and refund service.
 - Store chat sessions in Redis/DynamoDB instead of memory.
-- Add proper customer login (e.g. OTP) instead of only checking the phone number.
+- Add proper customer login (e.g. OTP) instead of only checking the phone number. Then bind conversations to the logged-in
+  customer instead of the anonymous owner cookie.
+- Leave `DEBUG_TOKEN` unset, or set it to a long random secret known only to operators.
