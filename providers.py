@@ -86,7 +86,8 @@ _MODEL_LIST = [
     ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "gemini", "gemini-3.1-flash-lite"),
     ("gemini-3-flash-preview", "Gemini 3 Flash Preview", "gemini", "gemini-3-flash-preview"),
     ("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", "gemini-2.5-flash"),
-    ("claude-fable-5-1", "Claude Fable 5.1", "bedrock", "anthropic.claude-fable-5-1"),
+    # Claude Fable 5.1 (anthropic.claude-fable-5-1) is left out until Bedrock serves it in our account: it answers
+    # 404 "model does not exist", so it failed every eval case.
     # The 5.5 models are served only through a cross-region inference profile (us.) on the Bedrock runtime API; the
     # Mantle endpoint answers 404 for them in our account.
     ("claude-opus-5-5", "Claude Opus 5.5", "bedrock", "us.anthropic.claude-opus-5-5"),
