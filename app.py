@@ -4,7 +4,7 @@ import uuid
 
 from dotenv import load_dotenv
 
-# Load .env (e.g. OPENAI_API_KEY) before providers reads the environment.
+# Load .env (e.g. GEMINI_API_KEY) before providers reads the environment.
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from fastapi import FastAPI, HTTPException
@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from providers import DEFAULT_MODEL, MODELS, STORE_NAME, ProviderError, list_models, run_turn
+from providers import DEFAULT_MODEL, STORE_NAME, ProviderError, get_model, list_models, run_turn
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -38,7 +38,8 @@ def models():
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    if req.model not in MODELS:
+    model = get_model(req.model)
+    if model is None:
         raise HTTPException(400, f"Unknown model {req.model}")
     session_id = req.session_id or str(uuid.uuid4())
     transcript = sessions.setdefault(session_id, [])
@@ -58,7 +59,7 @@ def chat(req: ChatRequest):
         "session_id": session_id,
         "reply": reply,
         "model": req.model,
-        "model_label": MODELS[req.model]["label"],
+        "model_label": model["label"],
         "latency_ms": int((time.monotonic() - started) * 1000),
         "usage": usage,  # tokens over every model call behind this reply (tool rounds included)
         **({"trace": trace} if trace else {}),
