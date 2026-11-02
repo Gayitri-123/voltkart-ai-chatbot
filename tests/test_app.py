@@ -4,12 +4,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
+import sessions
 from providers import ProviderError
 
 
+@pytest.fixture(autouse=True, params=["memory", "redis"])
+def store(request, monkeypatch):
+    """Every test runs against both session stores: Redis through fakeredis."""
+    if request.param == "memory":
+        store = sessions.MemoryStore()
+    else:
+        fakeredis = pytest.importorskip("fakeredis")
+        store = sessions.RedisStore(fakeredis.FakeRedis(decode_responses=True))
+    monkeypatch.setattr(app_module, "store", store)
+    return store
+
+
 @pytest.fixture
-def client(monkeypatch):
-    app_module.sessions.clear()
+def client():
     return TestClient(app_module.app)
 
 
@@ -79,7 +91,7 @@ def test_chat_debug_trace_is_redacted(client, monkeypatch):
     assert call["output"]["items"] == [{"price": 19999}] and call["output"]["status"] == "Out for delivery"
     assert "9876543210" not in str(data) and "example.com" not in str(data)
     # The stored transcript keeps the real values for the model.
-    assert app_module.sessions[data["session_id"]].transcript[-1]["steps"] == [[step]]
+    assert app_module.store.transcript(data["session_id"])[-1]["steps"] == [[step]]
 
 
 def test_chat_route(client, monkeypatch):
@@ -105,30 +117,54 @@ def test_chat_unknown_model(client):
 def test_failed_turn_is_not_recorded(client, monkeypatch):
     def boom(*_):
         raise ProviderError(429, "limit")
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    sid = client.post("/api/chat", json={"message": "x"}).json()["session_id"]
     monkeypatch.setattr(app_module, "run_turn", boom)
-    r = client.post("/api/chat", json={"message": "x"})
+    r = client.post("/api/chat", json={"message": "y", "session_id": sid})
     assert r.status_code == 429 and r.json()["detail"] == "limit"
-    [session] = app_module.sessions.values()
-    assert session.transcript == []
-    assert not session.lock.locked()  # a failed turn doesn't leave the conversation stuck
+    assert [t["text"] for t in app_module.store.transcript(sid)] == ["x", "Hi!"]
+    # A failed turn doesn't leave the conversation stuck.
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    assert client.post("/api/chat", json={"message": "z", "session_id": sid}).status_code == 200
+
+
+def test_reply_during_reset_is_sent_but_not_recorded(client, monkeypatch):
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    sid = client.post("/api/chat", json={"message": "x"}).json()["session_id"]
+
+    def reset_meanwhile(model_id, transcript, usage):
+        assert client.post("/api/reset", json={"message": "", "session_id": sid}).status_code == 200
+        return "late", []
+    monkeypatch.setattr(app_module, "run_turn", reset_meanwhile)
+    assert client.post("/api/chat", json={"message": "y", "session_id": sid}).json()["reply"] == "late"
+    assert app_module.store.owner(sid) is None and app_module.store.transcript(sid) == []
+
+
+def test_store_outage_is_a_clear_error(monkeypatch):
+    fakeredis = pytest.importorskip("fakeredis")
+    server = fakeredis.FakeServer()
+    server.connected = False
+    monkeypatch.setattr(app_module, "store", sessions.RedisStore(fakeredis.FakeRedis(server=server)))
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    r = TestClient(app_module.app).post("/api/chat", json={"message": "x"})
+    assert r.status_code == 503 and "temporarily unavailable" in r.json()["detail"]
 
 
 def test_reset(client, monkeypatch):
     monkeypatch.setattr(app_module, "run_turn", fake_turn())
     sid = client.post("/api/chat", json={"message": "x"}).json()["session_id"]
     assert client.post("/api/reset", json={"message": "", "session_id": sid}).json() == {"ok": True}
-    assert sid not in app_module.sessions
+    assert app_module.store.owner(sid) is None
 
 
 def test_unknown_session_is_rejected(client, monkeypatch):
     monkeypatch.setattr(app_module, "run_turn", fake_turn())
     r = client.post("/api/chat", json={"message": "x", "session_id": "made-up"})
     assert r.status_code == 404
-    assert "made-up" not in app_module.sessions
+    assert app_module.store.owner("made-up") is None
 
 
 def test_copied_session_id_is_rejected(monkeypatch):
-    app_module.sessions.clear()
     monkeypatch.setattr(app_module, "run_turn", fake_turn())
     alice, mallory = TestClient(app_module.app), TestClient(app_module.app)
     sid = alice.post("/api/chat", json={"message": "my order ORD10001, phone 9876543210"}).json()["session_id"]
@@ -136,7 +172,7 @@ def test_copied_session_id_is_rejected(monkeypatch):
     # Another browser with the copied session id can't read, append to or reset the conversation...
     assert mallory.post("/api/chat", json={"message": "what did I just say?", "session_id": sid}).status_code == 404
     assert mallory.post("/api/reset", json={"message": "", "session_id": sid}).status_code == 404
-    assert len(app_module.sessions[sid].transcript) == 2
+    assert len(app_module.store.transcript(sid)) == 2
     # ...nor can a caller with no cookie at all.
     no_cookie = TestClient(app_module.app)
     assert no_cookie.post("/api/reset", json={"message": "", "session_id": sid}).status_code == 404
@@ -145,7 +181,7 @@ def test_copied_session_id_is_rejected(monkeypatch):
     assert alice.post("/api/chat", json={"message": "again", "session_id": sid}).status_code == 200
     assert [t["text"] for t in fake_turn.seen][-1] == "again"
     assert alice.post("/api/reset", json={"message": "", "session_id": sid}).status_code == 200
-    assert sid not in app_module.sessions
+    assert app_module.store.owner(sid) is None
 
 
 def test_owner_cookie_is_http_only(client, monkeypatch):
@@ -184,7 +220,7 @@ def test_overlapping_requests_in_one_session(client, monkeypatch):
         slow.join(5)
 
     assert results["slow"].status_code == 200
-    assert [t["text"] for t in app_module.sessions[sid].transcript] == [
+    assert [t["text"] for t in app_module.store.transcript(sid)] == [
         "first", "re: first after 0", "slow", "re: slow after 2"]
     # Once the reply is in, the conversation takes the next message, which sees every earlier turn.
     assert client.post("/api/chat", json={"message": "next", "session_id": sid}).json()["reply"] == "re: next after 4"

@@ -23,3 +23,16 @@ services:
       # Operator secret for "debug": true tool traces (set in the dashboard; leave empty to keep traces off).
       - key: DEBUG_TOKEN
         sync: false
+      # Conversations live in the Key Value (Redis-compatible) instance below, so they survive restarts and deploys.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: voltkart-sessions
+          property: connectionString
+
+  # Chat sessions. Reachable only from this account's services (empty ipAllowList). The free plan keeps data in
+  # memory only, so conversations are lost if this instance restarts; pick a paid plan for persistence.
+  - type: keyvalue
+    name: voltkart-sessions
+    plan: free
+    ipAllowList: []
