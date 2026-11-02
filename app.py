@@ -1,11 +1,9 @@
 import hmac
+import logging
 import os
 import re
 import secrets
-import threading
 import time
-import uuid
-from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -13,10 +11,11 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import sessions
 from providers import DEFAULT_MODEL, STORE_NAME, ProviderError, get_model, list_models, run_turn
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -36,16 +35,18 @@ PHONE_RE = re.compile(r"(?<!\d)(?:\+?91[\s-]?)?\d{6}(\d{4})(?!\d)")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 
 
-@dataclass
-class Session:
-    owner: str
-    transcript: list = field(default_factory=list)  # format documented in providers.py
-    # Held while a reply is being generated, so overlapping requests can't interleave turns.
-    lock: threading.Lock = field(default_factory=threading.Lock)
+# Conversations: in Redis when REDIS_URL is set, otherwise in this process's memory (see sessions.py).
+store = sessions.store_from_env()
+log = logging.getLogger(__name__)
 
 
-# session_id -> Session. In-memory; use Redis/DynamoDB in production.
-sessions: dict[str, Session] = {}
+def store_unavailable(request, exc):
+    log.error("Session store error: %r", exc)
+    return JSONResponse({"detail": "Chat history is temporarily unavailable. Please try again shortly."}, 503)
+
+
+for error in sessions.ERRORS:
+    app.add_exception_handler(error, store_unavailable)
 
 
 # Which kind of lookup each tool is; a reply's "route" names the kind it started with (gray-box testing).
@@ -92,12 +93,12 @@ def owner_id(request: Request, response: Response, owner):
     return owner
 
 
-def owned_session(session_id, owner):
-    """The session if this owner started it. Unknown and other owners' sessions look the same, so ids can't be probed."""
-    session = sessions.get(session_id)
-    if session is None or not hmac.compare_digest(session.owner, owner):
+def check_owner(session_id, owner):
+    """404 unless this owner started the conversation. Unknown, expired and other owners' conversations look the same,
+    so ids can't be probed."""
+    started_by = store.owner(session_id)
+    if started_by is None or not hmac.compare_digest(started_by, owner):
         raise HTTPException(404, "This conversation is no longer available. Please start a new chat.")
-    return session
 
 
 class ChatRequest(BaseModel):
@@ -120,16 +121,16 @@ def chat(req: ChatRequest, request: Request, response: Response,
         raise HTTPException(400, f"Unknown model {req.model}")
     owner = owner_id(request, response, owner)
     if req.session_id:
-        session_id, session = req.session_id, owned_session(req.session_id, owner)
+        session_id = req.session_id
+        check_owner(session_id, owner)
     else:
-        session_id, session = str(uuid.uuid4()), Session(owner)
-        sessions[session_id] = session
+        session_id = store.create(owner)
 
-    if not session.lock.acquire(blocking=False):
+    token = store.lock(session_id)
+    if token is None:
         raise HTTPException(409, "Still answering your previous message. Please wait for it before sending another.")
     try:
-        transcript = session.transcript
-        pending = transcript + [{"role": "user", "text": req.message}]
+        pending = store.transcript(session_id) + [{"role": "user", "text": req.message}]
         started = time.monotonic()
         try:
             usage: dict = {}
@@ -137,11 +138,14 @@ def chat(req: ChatRequest, request: Request, response: Response,
         except ProviderError as e:
             raise HTTPException(e.status, str(e))
 
-        # Only record the turn once it succeeded, so a failed call never leaves a dangling user message.
-        transcript.extend([pending[-1], {"role": "assistant", "text": reply, "steps": steps}])
-        route = route_of(transcript)
+        # Only record the turn once it succeeded, so a failed call never leaves a dangling user message. It isn't
+        # recorded if the conversation was reset meanwhile or the reply outlived its lock; the reply is still sent.
+        turns = [pending[-1], {"role": "assistant", "text": reply, "steps": steps}]
+        if not store.append(session_id, token, turns):
+            log.warning("Reply not recorded: conversation reset or lock expired")
+        route = route_of(pending[:-1] + turns)
     finally:
-        session.lock.release()
+        store.unlock(session_id, token)
 
     tools = [redact(call) for round_ in steps for call in round_]
     trace = {"tools": tools} if req.debug and debug_allowed(x_debug_token) else None
@@ -160,8 +164,8 @@ def chat(req: ChatRequest, request: Request, response: Response,
 @app.post("/api/reset")
 def reset(req: ChatRequest, owner: str | None = Cookie(None, alias=OWNER_COOKIE)):
     if req.session_id:
-        owned_session(req.session_id, owner or "")
-        sessions.pop(req.session_id, None)
+        check_owner(req.session_id, owner or "")
+        store.delete(req.session_id)
     return {"ok": True}
 
 

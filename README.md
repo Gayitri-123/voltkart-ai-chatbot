@@ -33,6 +33,11 @@ their products (Google does), so don't send real customer data through them.
   HttpOnly cookie, and answers 404 when a session id is used or reset without its owner's cookie (so a leaked or
   guessed session id is useless). A message sent while the previous reply in the same conversation is still being
   generated gets 409; other conversations are not held up.
+- `sessions.py`: where conversations are kept. With `REDIS_URL` set they are stored in Redis, so they survive restarts
+  and deploys and work across several server processes; without it they are kept in memory (fine for local use, lost
+  on restart). A conversation expires `SESSION_TTL_SECONDS` (default 24 hours) after its last message. While a reply is
+  being generated the conversation is locked, for at most `SESSION_LOCK_SECONDS` (default 600) in case the server dies
+  mid-reply. If the store can't be reached, chat requests get 503.
 - `providers.py`: model list, system prompt, and the tool-calling loop: Gemini and Ollama through their
   OpenAI-compatible APIs,
   Claude through the Anthropic SDK on Bedrock.
@@ -108,7 +113,9 @@ judge inconsistently. With the free tier, keep `--workers` low (e.g. 2) to stay 
 
 ## Going to production
 - Connect `tools.py` to the real product catalog, order management system and refund service.
-- Store chat sessions in Redis/DynamoDB instead of memory.
+- Set `REDIS_URL` so chat sessions are kept in Redis (the Render blueprint creates a Key Value instance for this).
+  Transcripts include customers' phone numbers and order details: keep Redis private, use a `rediss://` (TLS) URL
+  when it isn't on a private network, and lower `SESSION_TTL_SECONDS` if you don't need day-long conversations.
 - Add proper customer login (e.g. OTP) instead of only checking the phone number. Then bind conversations to the logged-in
   customer instead of the anonymous owner cookie.
 - Leave `DEBUG_TOKEN` unset, or set it to a long random secret known only to operators.
