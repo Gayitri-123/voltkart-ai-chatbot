@@ -63,12 +63,48 @@ def test_invalid_tool_json(fake_client):
     assert steps[0][0]["output"] == {"error": "Tool arguments were not valid JSON."}
 
 
-def test_too_many_tool_rounds_falls_back(fake_client):
+def test_too_many_tool_rounds_is_an_error(fake_client):
     call = tool_call("get_policy", json.dumps({"topic": "returns"}))
     fake_client([completion(tool_calls=[call])] * providers.MAX_TOOL_ROUNDS)
-    reply, steps = run_turn("gemini-3.5-flash", [{"role": "user", "text": "x"}])
-    assert reply == providers.FALLBACK_REPLY
-    assert len(steps) == providers.MAX_TOOL_ROUNDS
+    with pytest.raises(ProviderError) as e:
+        run_turn("gemini-3.5-flash", [{"role": "user", "text": "x"}])
+    assert e.value.status == 502 and str(e.value) == providers.TOO_MANY_ROUNDS
+
+
+BUDGET_CHAT = [{"role": "user", "text": "For this conversation my budget is 20000 rupees."},
+               {"role": "assistant", "text": "The Redmi Note 14 5G fits at Rs 19,999.", "steps": []},
+               {"role": "user", "text": "Correction: my budget is now 15000 rupees."}]
+
+
+@pytest.mark.parametrize("empty", [None, "", "  \n"])
+def test_empty_reply_is_asked_again(fake_client, empty, caplog):
+    client = fake_client([completion(empty), completion("Noted, your budget is now Rs 15,000.")])
+    reply, _ = run_turn("gemini-3.8-flash", BUDGET_CHAT)
+    assert reply == "Noted, your budget is now Rs 15,000."
+    assert client.requests[1]["messages"] == client.requests[0]["messages"]  # the empty reply isn't replayed
+    assert "Gemini 3.8 Flash returned no text" in caplog.text and "15000" not in caplog.text  # no message content
+
+
+def test_empty_reply_twice_is_an_error(fake_client):
+    call = tool_call("search_products", json.dumps({"max_price": 15000}))
+    fake_client([completion(tool_calls=[call]), completion(""), completion(None)])  # a tool round, then no text
+    with pytest.raises(ProviderError) as e:
+        run_turn("gemini-3.8-flash", BUDGET_CHAT)
+    assert e.value.status == 502 and "empty reply" in str(e.value)
+
+
+def test_claude_empty_reply_is_asked_again(fake_bedrock):
+    client = fake_bedrock([claude_message(None), claude_message("Noted: Rs 15,000.")])
+    assert run_turn("claude-sonnet-5-5", BUDGET_CHAT)[0] == "Noted: Rs 15,000."
+    # Claude rejects empty assistant turns, so the empty reply isn't sent back.
+    assert client.requests[1]["messages"] == client.requests[0]["messages"]
+
+
+def test_claude_empty_reply_twice_is_an_error(fake_bedrock):
+    fake_bedrock([claude_message(None), claude_message(" ", stop_reason="max_tokens")])
+    with pytest.raises(ProviderError) as e:
+        run_turn("claude-sonnet-5-5", BUDGET_CHAT)
+    assert e.value.status == 502 and "empty reply" in str(e.value)
 
 
 def test_claude_tool_loop(fake_bedrock):
