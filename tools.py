@@ -7,8 +7,8 @@ TOOLS = [
         "name": "search_products",
         "description": "Search the store catalog by keyword, category, brand, and/or maximum price. "
                        "Use this whenever the customer asks about products, prices, availability or recommendations. "
-                       "Call it with no arguments to list the whole catalog (e.g. for 'the cheapest' or 'what do you "
-                       "sell'), or with only max_price for a budget.",
+                       "Call it with no arguments to list the whole catalog (e.g. for 'the cheapest', 'the most "
+                       "expensive', 'the best' or 'what do you sell'), or with only max_price for a budget.",
         "input_schema": {
             "type": "object",
             "properties": {
