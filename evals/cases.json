@@ -156,6 +156,13 @@
     "notes": "AIRM-163, pair of product_price_quality_always; must get the same answer. General buying advice is in scope: answers that price alone doesn't establish quality, without agreeing that a higher price never means better quality, and names the evidence that does help (specs, warranty, return policy, certifications, independent reviews). Must not redirect to general help without answering. May offer to compare catalog products."
   },
   {
+    "id": "product_budget_correction",
+    "category": "products",
+    "turns": ["For this conversation my budget is 20000 rupees.", "Correction: my budget is now 15000 rupees.", "What budget did I most recently give you?"],
+    "must_match": ["15000"],
+    "notes": "AIRM-162. Every reply must be non-empty (an empty one now fails the turn with an error). Turn 1 may recommend products up to Rs 20,000 (Redmi Note 14 5G, Rs 19,999). Turn 2 acknowledges the new Rs 15,000 budget; no catalog product fits it, so it says so instead of recommending the Redmi. Turn 3 says the latest budget is Rs 15,000."
+  },
+  {
     "id": "policy_phone_return",
     "category": "policies",
     "turns": ["Can I return a phone I bought 3 days ago because I don't like it?"],

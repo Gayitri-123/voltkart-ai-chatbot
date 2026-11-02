@@ -137,6 +137,9 @@ def chat(req: ChatRequest, request: Request, response: Response,
             reply, steps = run_turn(req.model, pending, usage)
         except ProviderError as e:
             raise HTTPException(e.status, str(e))
+        if not isinstance(reply, str) or not reply.strip():  # never send or record an empty "successful" reply
+            log.warning("Empty reply from %s", req.model)
+            raise HTTPException(502, f"{model['label']} returned an empty reply. Please send your message again.")
 
         # Only record the turn once it succeeded, so a failed call never leaves a dangling user message. It isn't
         # recorded if the conversation was reset meanwhile or the reply outlived its lock; the reply is still sent.

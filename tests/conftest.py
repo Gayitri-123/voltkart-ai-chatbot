@@ -29,7 +29,8 @@ def completion(content=None, tool_calls=None, prompt_tokens=10, completion_token
     message = SimpleNamespace(content=content, tool_calls=tool_calls, model_dump=model_dump)
     usage = SimpleNamespace(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
                             prompt_tokens_details=SimpleNamespace(cached_tokens=cached))
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+    finish_reason = "tool_calls" if tool_calls else "stop"
+    return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)], usage=usage)
 
 
 class FakeClient:

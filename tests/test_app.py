@@ -128,6 +128,18 @@ def test_failed_turn_is_not_recorded(client, monkeypatch):
     assert client.post("/api/chat", json={"message": "z", "session_id": sid}).status_code == 200
 
 
+@pytest.mark.parametrize("empty", ["", "   ", None])
+def test_empty_reply_is_an_error_not_recorded(client, monkeypatch, empty):
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    sid = client.post("/api/chat", json={"message": "my budget is 20000"}).json()["session_id"]
+    monkeypatch.setattr(app_module, "run_turn", lambda *_: (empty, []))
+    r = client.post("/api/chat", json={"message": "correction: 15000", "session_id": sid})
+    assert r.status_code == 502 and "empty reply" in r.json()["detail"]
+    assert len(app_module.store.transcript(sid)) == 2
+    monkeypatch.setattr(app_module, "run_turn", fake_turn())
+    assert client.post("/api/chat", json={"message": "correction: 15000", "session_id": sid}).status_code == 200
+
+
 def test_reply_during_reset_is_sent_but_not_recorded(client, monkeypatch):
     monkeypatch.setattr(app_module, "run_turn", fake_turn())
     sid = client.post("/api/chat", json={"message": "x"}).json()["session_id"]

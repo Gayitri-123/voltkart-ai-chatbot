@@ -12,6 +12,7 @@ Anthropic SDK).
 """
 
 import json
+import logging
 import os
 
 import anthropic
@@ -50,7 +51,14 @@ How to answer:
 
 Quote prices in rupees (Rs). Keep replies short and friendly. You may use **bold** for product names and key figures, and "- " bullet lists when listing products or details. Do not use headings or tables."""
 
-FALLBACK_REPLY = "Sorry, that took too long to look up. Please try rephrasing your question."
+# A reply is never empty: a model that answers with no text (and no tool calls) is asked again this many times, then
+# the turn fails with an explicit error instead of an empty "successful" reply. So does a turn that is still calling
+# tools after MAX_TOOL_ROUNDS. Failed turns aren't recorded, so the conversation can carry on.
+EMPTY_REPLY_RETRIES = 1
+EMPTY_REPLY = "{label} returned an empty reply. Please send your message again or pick another model."
+TOO_MANY_ROUNDS = "Sorry, that took too long to look up. Please try rephrasing your question."
+
+log = logging.getLogger(__name__)
 
 NO_AWS_CREDENTIALS = "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY on the server."
 
@@ -116,6 +124,19 @@ _ollama_tools = {}  # Ollama model digest -> whether that model supports tool ca
 
 def _available(provider):
     return PROVIDERS[provider]["configured"]()
+
+
+def _empty_reply(cfg, stop_reason, rounds, attempt):
+    """Log an empty model reply (no message content, which may hold personal data) and whether to ask again."""
+    log.warning("%s returned no text and no tool calls (stop reason %s, after %d tool rounds, attempt %d)",
+                cfg["label"], stop_reason, rounds, attempt)
+    if attempt > EMPTY_REPLY_RETRIES:
+        raise ProviderError(502, EMPTY_REPLY.format(label=cfg["label"]))
+
+
+def _too_many_rounds(cfg):
+    log.warning("%s was still calling tools after %d rounds", cfg["label"], MAX_TOOL_ROUNDS)
+    return ProviderError(502, TOO_MANY_ROUNDS)
 
 
 def _not_configured(provider):
@@ -217,6 +238,7 @@ def _run_openai(cfg, transcript, steps, usage):
         raise _not_configured(provider)
     client = _client(provider)
     messages = _to_openai_messages(transcript, provider)
+    empty = 0
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             response = client.chat.completions.create(
@@ -227,7 +249,11 @@ def _run_openai(cfg, transcript, steps, usage):
                 _add_usage(usage, response.usage.prompt_tokens - cached, response.usage.completion_tokens, cached, 0)
             msg = response.choices[0].message
             if not msg.tool_calls:
-                return msg.content or ""
+                if (msg.content or "").strip():
+                    return msg.content
+                empty += 1
+                _empty_reply(cfg, response.choices[0].finish_reason, len(steps), empty)
+                continue  # ask again with the same messages
             messages.append(msg.model_dump(exclude_none=True))  # keeps Gemini's extra_content (thought signatures)
             round_ = []
             for call in msg.tool_calls:
@@ -242,7 +268,7 @@ def _run_openai(cfg, transcript, steps, usage):
                 round_.append(step)
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(output)})
             steps.append(round_)
-        return FALLBACK_REPLY
+        raise _too_many_rounds(cfg)
     except openai.RateLimitError as e:
         # Gemini names the quota it hit: a daily one (GenerateRequestsPerDay...) won't clear by waiting a minute.
         if "perday" in f"{e.message} {e.body}".lower().replace(" ", ""):
@@ -294,6 +320,7 @@ def _run_bedrock(cfg, transcript, steps, usage):
         raise _not_configured("bedrock")
     client = _bedrock(cfg["api_model"])
     messages = _to_claude_messages(transcript)
+    empty = 0
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             response = client.messages.create(
@@ -306,11 +333,16 @@ def _run_bedrock(cfg, transcript, steps, usage):
             u = response.usage
             _add_usage(usage, u.input_tokens, u.output_tokens,
                        u.cache_read_input_tokens or 0, u.cache_creation_input_tokens or 0)
-            messages.append({"role": "assistant", "content": response.content})
             if response.stop_reason == "refusal":
                 return f"Sorry, I can't help with that. Please contact {STORE_NAME} customer care."
             if response.stop_reason != "tool_use":
-                return "".join(b.text for b in response.content if b.type == "text")
+                text = "".join(b.text for b in response.content if b.type == "text")
+                if text.strip():
+                    return text
+                empty += 1
+                _empty_reply(cfg, response.stop_reason, len(steps), empty)
+                continue  # ask again; the empty reply isn't added, since Claude rejects empty assistant turns
+            messages.append({"role": "assistant", "content": response.content})
 
             results, round_ = [], []
             for block in response.content:
@@ -321,7 +353,7 @@ def _run_bedrock(cfg, transcript, steps, usage):
                                     "content": json.dumps(output), "is_error": is_error})
             messages.append({"role": "user", "content": results})
             steps.append(round_)
-        return FALLBACK_REPLY
+        raise _too_many_rounds(cfg)
     except anthropic.RateLimitError:
         raise ProviderError(429, "Bedrock is rate limiting requests, please try again shortly.")
     except anthropic.APIStatusError as e:
@@ -344,7 +376,10 @@ def run_turn(model_id: str, transcript: list, usage: dict | None = None) -> tupl
         raise ProviderError(400, f"Unknown model {model_id}")
     steps: list = []
     run = _run_bedrock if cfg["provider"] == "bedrock" else _run_openai
-    return run(cfg, transcript, steps, {} if usage is None else usage), steps
+    reply = run(cfg, transcript, steps, {} if usage is None else usage)
+    if not isinstance(reply, str) or not reply.strip():  # every path above should already prevent this
+        raise ProviderError(502, EMPTY_REPLY.format(label=cfg["label"]))
+    return reply, steps
 
 
 def complete(model_id: str, prompt: str) -> str:
